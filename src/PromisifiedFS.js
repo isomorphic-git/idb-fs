@@ -34,6 +34,16 @@ function cleanParams2(oldFilepath, newFilepath) {
 }
 
 module.exports = class PromisifiedFS {
+  static register(name, backend) {
+    if (!this.prototype.backends) this.prototype.backends = {};
+    this.prototype.backends[name] = backend;
+  }
+
+  static unregister(name) {
+    if (this.prototype.backends)
+      return delete this.prototype.backends[name];
+  }
+
   constructor(name, options) {
     this.init = this.init.bind(this)
     this.readFile = this._wrap(this.readFile, false)
@@ -69,19 +79,22 @@ module.exports = class PromisifiedFS {
     this._initPromise = this._init(...args)
     return this._initPromise
   }
-  async _init (name, {
-    wipe,
-    url,
-    urlauto,
-    fileDbName = name,
-    fileStoreName = name + "_files",
-    lockDbName = name + "_lock",
-    lockStoreName = name + "_lock",
-  } = {}) {
+  async _init (name, options = {}) {
     await this._gracefulShutdown()
+    const {
+      wipe,
+      url,
+      urlauto,
+      backend,
+      fileDbName = name,
+      fileStoreName = name + "_files",
+      lockDbName = name + "_lock",
+      lockStoreName = name + "_lock",
+    } = options
     this._name = name
-    this._idb = new IdbBackend(fileDbName, fileStoreName);
-    this._mutex = navigator.locks ? new Mutex2(name) : new Mutex(lockDbName, lockStoreName);
+    let Backend = (this.backends && this.backends[backend]) || IdbBackend;
+    this._idb = new Backend(fileDbName, {...options, storename: fileStoreName});
+    this._mutex = typeof navigator !== 'undefined' && navigator.locks ? new Mutex2(name) : new Mutex(lockDbName, lockStoreName);
     this._cache = new CacheFS(name);
     this._opts = { wipe, url };
     this._needsWipe = !!wipe;
